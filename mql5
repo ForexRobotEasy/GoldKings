@@ -1,0 +1,154 @@
+mql5
+//+------------------------------------------------------------------+
+//|                                                      GoldKings.mq5|
+//|                                       Copyright 2022, Forex Robot Easy Team|
+//|                                               https://forexroboteasy.com|
+//+------------------------------------------------------------------+
+
+// Define the input parameters
+input double LotSize = 0.01;                          // Initial lot size
+input double TakeProfit = 100.0;                      // Take profit level
+input double GridStep = 20.0;                         // Grid step size
+input double MaxPositions = 5;                         // Maximum number of positions
+input bool CloseOnTotalProfit = true;                  // Option to close positions on total profit
+
+// Define the indicator variables
+int rsiHandle, bbHandle, dsHandle;
+double rsi[], bbUpper[], bbLower[], dsMain[];
+
+// Define the position management variables
+int totalPositions = 0;
+double totalProfit = 0.0;
+
+//+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+    // Initialize the indicators
+    rsiHandle = iRSI(_Symbol, PERIOD_H1, 14, PRICE_CLOSE);
+    bbHandle = iBands(_Symbol, PERIOD_H4, 20, 2, PRICE_CLOSE);
+    dsHandle = iStochastic(_Symbol, PERIOD_M15, 14, 3, 3, MODE_SMA, 0, MODE_MAIN);
+
+    return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Custom expert advisor start function                              |
+//+------------------------------------------------------------------+
+void OnStart()
+{
+    // Loop through all bars
+    for (int i = 0; i < Bars; i++)
+    {
+        // Calculate the indicators' values
+        rsi[i] = iRSI(_Symbol, PERIOD_H1, 14, PRICE_CLOSE, i);
+        bbUpper[i] = iBands(_Symbol, PERIOD_H4, 20, 2, PRICE_CLOSE, MODE_UPPER, i);
+        bbLower[i] = iBands(_Symbol, PERIOD_H4, 20, 2, PRICE_CLOSE, MODE_LOWER, i);
+        dsMain[i] = iStochastic(_Symbol, PERIOD_M15, 14, 3, 3, MODE_SMA, 0, MODE_MAIN, i);
+
+        // Check if the price is returning to its average value
+        if (rsi[i] > 70 && CloseOnTotalProfit)
+        {
+            // Close all positions and calculate the total profit
+            totalProfit += ClosePositions();
+        }
+
+        // Check if the price is below the lower Bollinger Band
+        if (CloseOnTotalProfit && totalPositions > 0 && totalProfit > 1000.0)
+        {
+            // Close all positions and reset the total profit
+            totalProfit += ClosePositions();
+        }
+
+        // Check if the price is above the upper Bollinger Band
+        if (totalPositions == 0 && totalProfit < -1000.0)
+        {
+            // Open a new position
+            OpenPosition();
+        }
+
+        // Check if the price is below the lower Bollinger Band
+        if (totalPositions > 0 && totalProfit < -1000.0)
+        {
+            // Hedge the existing positions
+            HedgePositions();
+        }
+    }
+
+    // Close any remaining positions
+    totalProfit += ClosePositions();
+}
+
+//+------------------------------------------------------------------+
+//| Function to open a new position                                   |
+//+------------------------------------------------------------------+
+void OpenPosition()
+{
+    // Open a new position at the current price
+    int ticket = OrderSend(_Symbol, OP_BUY, LotSize, Ask, 0, 0, 0, '', 0, 0, clrNONE);
+
+    // Check if the order was executed successfully
+    if (ticket > 0)
+    {
+        // Increase the total positions count
+        totalPositions++;
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Function to close all positions                                   |
+//+------------------------------------------------------------------+
+double ClosePositions()
+{
+    double totalProfit = 0.0;
+
+    // Loop through all open orders
+    for (int i = 0; i < OrdersTotal(); i++)
+    {
+        // Select the order
+        if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+            // Close the order
+            bool result = OrderClose(OrderTicket(), OrderLots(), Bid, 0, clrNONE);
+
+            // Calculate the profit
+            if (result)
+            {
+                totalProfit += OrderProfit();
+            }
+
+            // Decrease the total positions count
+            totalPositions--;
+        }
+    }
+
+    return totalProfit;
+}
+
+//+------------------------------------------------------------------+
+//| Function to hedge the existing positions                          |
+//+------------------------------------------------------------------+
+void HedgePositions()
+{
+    // Loop through all open orders
+    for (int i = 0; i < OrdersTotal(); i++)
+    {
+        // Select the order
+        if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+            // Hedge the order
+            bool result = OrderSend(_Symbol, OP_SELL, OrderLots(), Bid, 0, 0, 0, '', 0, 0, clrNONE);
+
+            // Decrease the total positions count
+            totalPositions--;
+
+            // Check if the order was executed successfully
+            if (result)
+            {
+                // Increase the total positions count
+                totalPositions++;
+            }
+        }
+    }
+}
